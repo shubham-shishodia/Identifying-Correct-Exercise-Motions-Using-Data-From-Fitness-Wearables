@@ -7,24 +7,191 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+library(caret)
+library(Amelia)
+library(parallel)
+library(doParallel)
 ```
 
-## R Markdown
+## Abstract
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+The goal of this project is to identify how well people do a particular weightlifting exercise, by analyzing data collected from accelerometers attached to the belt, arms and dumbbells. The data consists of exercise movements of 6 different indivduals, who were asked to perform the exercise under supervision. The outcomes were classified into 5 different categories, with class A being the correct technique, and the other classes categorizing common mistakes. The dataset, and relevant information about it was made available by the work of Wallace Ugulino, Eduardo Velloso and Hugo Fuks, and can be downloaded from http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+The approach used for creating a classification model was as follows:
 
-```{r cars}
-summary(cars)
+1. Load the dataset
+2. Partition the dataset into training and validation sets
+3. Perform exploratory analysis on the training set
+4. Build a model on the training set
+5. Evaluate model performance on the validation set
+6. Perform predictions on the test set
+
+## Loading the dataset
+
+```{r loading, cache=TRUE}
+data<-read.csv("C:\\Users\\shubh\\Desktop\\Data Science\\Course 7\\pml-training.csv",header = TRUE,
+               stringsAsFactors = FALSE, na.strings = c("NA",""))
+
+data$classe<-as.factor(data$classe)
+
+set.seed(12345)
+
+inTrain<-createDataPartition(y = data$classe, p=0.75, list = FALSE)
+
+train<-data[inTrain,]
+validation<-data[-inTrain,]
 ```
 
-## Including Plots
+The dataset was divided into training and validation so that the model built on the training set could be tested on the validation set, to finetune the model.
 
-You can also embed plots, for example:
+## Cleaning the Dataset
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+Next, the training data was analyzed for missing values, and necessary transformation were made to the columns. The 'missmap' function from the Amelia package helps to quickly visualize the extent of missing values in a particular dataset.
+
+```{r cleaning1, cache=TRUE}
+missmap(train)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+It can be seen that many columns have missing values. These are generally columns consisting of summary statistics for data pertaining to a particular sensor (arm, forearm, belt, etc.). Thus, these columns can be removed from the training data as they do not add much value to the model.
+
+```{r cleaning2, cache=TRUE}
+train<-train[,!sapply(train,function(x) any(is.na(x)))] ## Removing columns with missing values
+```
+
+## Exploratory Analysis
+
+Next an exploratory analysis was performed on the dataset. The plots are not included in this document, but can be viewed in the pdf files in the repository. There are 13 plots for each kind of sensor (arm, forearm, belt, and dumbbell). Significant differences could be seen between data for Class A compared to other classes for each kind of sensor. Thus, all the variables were used to build the model.
+
+```{r Exploratory Analysis, message=FALSE, warning=FALSE, cache=TRUE}
+col_names<-colnames(train)
+
+pdf("C:\\Users\\shubh\\Desktop\\Data Science\\Course 7\\practicalmachinelearning\\belt_plots.pdf", onefile = TRUE)
+
+cols_belt<-col_names[grepl("belt",col_names)]
+  
+for(i in 1:length(cols_belt)){
+    g<-ggplot(data = train, aes_string(x=cols_belt[i], col = "classe")) + geom_freqpoly()
+    print(g)
+}
+
+dev.off()
+
+pdf("C:\\Users\\shubh\\Desktop\\Data Science\\Course 7\\practicalmachinelearning\\arm_plots.pdf", onefile = TRUE)
+
+cols_arm<-col_names[grepl("_arm",col_names)]
+
+for(i in 1:length(cols_belt)){
+  g<-ggplot(data = train, aes_string(x=cols_arm[i], col = "classe")) + geom_freqpoly()
+  print(g)
+}
+
+dev.off()
+
+pdf("C:\\Users\\shubh\\Desktop\\Data Science\\Course 7\\practicalmachinelearning\\dumbbell_plots.pdf", onefile = TRUE)
+
+cols_dumbbell<-col_names[grepl("dumbbell",col_names)]
+
+for(i in 1:length(cols_belt)){
+  g<-ggplot(data = train, aes_string(x=cols_dumbbell[i], col = "classe")) + geom_freqpoly()
+  print(g)
+}
+
+dev.off()
+
+pdf("C:\\Users\\shubh\\Desktop\\Data Science\\Course 7\\practicalmachinelearning\\forearm_plots.pdf", onefile = TRUE)
+
+cols_forearm<-col_names[grepl("forearm",col_names)]
+
+for(i in 1:length(cols_belt)){
+  g<-ggplot(data = train, aes_string(x=cols_forearm[i], col = "classe")) + geom_freqpoly()
+  print(g)
+}
+
+dev.off()
+
+pdf("C:\\Users\\shubh\\Desktop\\Data Science\\Course 7\\practicalmachinelearning\\belt_boxplots.pdf", onefile = TRUE)
+
+for(i in 1:length(cols_belt)){
+  g<-ggplot(data = train, aes_string(y=cols_belt[i], x = "classe")) + geom_boxplot()
+  print(g)
+}
+
+dev.off()
+
+pdf("C:\\Users\\shubh\\Desktop\\Data Science\\Course 7\\practicalmachinelearning\\arm_boxplots.pdf", onefile = TRUE)
+
+for(i in 1:length(cols_arm)){
+  g<-ggplot(data = train, aes_string(y=cols_arm[i], x = "classe")) + geom_boxplot()
+  print(g)
+}
+
+dev.off()
+
+pdf("C:\\Users\\shubh\\Desktop\\Data Science\\Course 7\\practicalmachinelearning\\dumbbell_boxplots.pdf", onefile = TRUE)
+
+for(i in 1:length(cols_dumbbell)){
+  g<-ggplot(data = train, aes_string(y=cols_dumbbell[i], x = "classe")) + geom_boxplot()
+  print(g)
+}
+
+dev.off()
+
+pdf("C:\\Users\\shubh\\Desktop\\Data Science\\Course 7\\practicalmachinelearning\\forearm_boxplots.pdf", onefile = TRUE)
+
+for(i in 1:length(cols_forearm)){
+  g<-ggplot(data = train, aes_string(y=cols_forearm[i], x = "classe")) + geom_boxplot()
+  print(g)
+}
+
+dev.off()
+```
+
+## Fitting the Model
+
+I decided to use a random forest to construct the classification model. Random forests is an ensemble and uses outputs from multiple decision trees to come up with predictions. Random forests are generally accurate, and work really with large datasets, which is true for this case. They are also less prone to overfitting as it combines results from a multiple number of decision trees to come up with the solution.They are also robust to outliers, and can identify important variables.
+
+On the flipside, they usually take a long amount to train, and are difficult to interpret. They might not perform well with a noisy dataset.
+
+```{r model, cache=TRUE}
+
+train<-train[,-c(1:7)] ## Removing variables such as name, timestamp, window number as they do not impact the output
+
+cluster<-makeCluster(detectCores()-1)
+registerDoParallel(cluster)
+
+fitcontrol<-trainControl(allowParallel = TRUE)
+
+set.seed(12345)
+
+fit_rf<-train(classe~.,method = "rf",data = train, trControl = fitcontrol)
+
+stopCluster(cluster)
+registerDoSEQ()
+
+```
+
+## Testing the Model
+
+The model was tested on the training, as well as the validation set to get a sense of the in sample and out of sample error rates.
+
+```{r testing}
+
+confusionMatrix(train$classe, predict(fit_rf, train)) ## Calculating in sample error rate
+
+confusionMatrix(validation$classe, predict(fit_rf,validation)) ## Calculating out of sample error rate
+```
+
+The in sample accuracy rate is 100%, and the out of sample accuracy rate is 99.35%. These results are excellent and I did not consider fine-tuning the model on the basis of the validation results to prevent overfitting.
+
+## Results on the test set
+
+The model predicted the following values for the test set:
+
+```{r prediction}
+
+testing<-read.csv("C:\\Users\\shubh\\Desktop\\Data Science\\Course 7\\pml-testing.csv",header = TRUE, stringsAsFactors = FALSE, na.strings = c("NA",""))
+test_pred<-predict(fit_rf,testing)
+
+test_pred
+```
